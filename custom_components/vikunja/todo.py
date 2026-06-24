@@ -94,10 +94,13 @@ class VikunjaTaskTodoListEntity(
         return f"todo_list_{self.project.id}"
 
     def tasks_for_project(self) -> list[Task]:
-        return [
+        tasks = [
             task for task in self._coordinator.data[DATA_TASKS_KEY].values()
             if task.project_id == self._project_id
         ]
+
+        # NEW: enforce newest-first ordering (stable + deterministic)
+        return sorted(tasks, key=lambda t: t.id, reverse=True)
 
     def task_by_id(self, id: int) -> Optional[Task]:
         tasks = self.tasks_for_project()
