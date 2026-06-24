@@ -113,6 +113,7 @@ class VikunjaTaskTodoListEntity(
         return [_convert_api_item(item) for item in self.tasks_for_project()]
 
     async def async_create_todo_item(self, item: TodoItem) -> None:
+        """Create a new To-do item."""
         data = {
             "done": item.status == TodoItemStatus.COMPLETED,
             "title": item.summary,
@@ -123,17 +124,30 @@ class VikunjaTaskTodoListEntity(
         if item.due is not None and item.status != TodoItemStatus.COMPLETED:
             data["due_date"] = str(item.due.replace(tzinfo=dt.DEFAULT_TIME_ZONE).isoformat())
 
-        await self.project.create_task(data)
+        # Create the task on Vikunja
+        new_task = await self.project.create_task(data)
+
+        # Immediately add it to coordinator cache for instant UI update
+        if new_task and self._coordinator.data is not None:
+            self._coordinator.data.setdefault(DATA_TASKS_KEY, {})[new_task.id] = new_task
+
         self._coordinator.async_update_listeners()
         await self._coordinator.async_request_refresh()
 
     async def async_delete_todo_items(self, uids: list[str]) -> None:
+        """Delete To-do items."""
         for uid in uids:
             id = int(uid)
-
             task = self.task_by_id(id)
 
-            await task.delete_task()
+            if task is not None:
+                await task.delete_task()
+
+                # Immediately remove from coordinator cache for instant UI update
+                if self._coordinator.data is not None and DATA_TASKS_KEY in self._coordinator.data:
+                    self._coordinator.data[DATA_TASKS_KEY].pop(id, None)
+
+            # Force refresh
             self._coordinator.async_update_listeners()
             await self._coordinator.async_request_refresh()
 
@@ -156,6 +170,10 @@ class VikunjaTaskTodoListEntity(
 
         if task is not None:
             await task.update(new_data)
+
+            # Immediately update local cache with the same task object (updated in place by the API)
+            if self._coordinator.data is not None and DATA_TASKS_KEY in self._coordinator.data:
+                self._coordinator.data[DATA_TASKS_KEY][uid] = task
 
         self._coordinator.async_update_listeners()
         await self._coordinator.async_request_refresh()
